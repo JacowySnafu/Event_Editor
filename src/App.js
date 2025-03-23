@@ -108,6 +108,12 @@ const EventsClubsPage = () => {
         <Nav.Item>
           <Nav.Link eventKey="clubs">Clubs</Nav.Link>
         </Nav.Item>
+        <Nav.Item>
+          <Nav.Link eventKey="FineArts">FineArts</Nav.Link>
+        </Nav.Item>
+        <Nav.Item>
+          <Nav.Link eventKey="athletics">Athletics</Nav.Link>
+        </Nav.Item>
       </Nav>
 
       {loading ? (
