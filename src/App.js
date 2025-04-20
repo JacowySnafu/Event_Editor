@@ -41,16 +41,17 @@ const EventsClubsPage = () => {
     e.preventDefault();
     const ids = bulkIds.split(/[\n,]+/).map(id => id.trim()).filter(id => id);
     if (!ids.length) return alert("Please enter at least one ID.");
-
-    const docRef = doc(db, "event_participants", "H7eyFTCnjeGPvtMlfSrB");
+  
+    const docRef = doc(db, "event_participants", "approved_ids");
     try {
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
-        const existingIds = docSnap.data().approved_ids?.ids || [];
-        const newIds = ids.filter(id => !existingIds.includes(id));
+        const existingIds = docSnap.data()?.ids || []; 
+        const newIds = ids.map(id => Number(id)).filter(id => !existingIds.includes(id)); 
+  
         if (newIds.length) {
-          await updateDoc(docRef, { "approved_ids.ids": arrayUnion(...newIds) });
-          setItems(prev => [...prev, ...newIds.map(id => ({ id }))]);
+          await updateDoc(docRef, { ids: arrayUnion(...newIds) }); 
+          setItems(prev => [...prev, ...newIds.map(id => ({ id }))]); 
           setBulkIds('');
           alert(`Successfully added ${newIds.length} new IDs.`);
         } else {
@@ -85,16 +86,23 @@ const EventsClubsPage = () => {
   const handleAddItem = async (e) => {
     e.preventDefault();
     try {
+      const updatedItemData = {
+        ...itemData,
+        type: (activeTab === "clubs" || activeTab === "FineArts" || activeTab === "tutor") ? "school" :
+          (activeTab === "events" || activeTab === "athletics") ? "volunteer" :
+            itemData.type || ""
+      };
+  
       if (activeTab === "event_participants") {
-        const docRef = doc(db, "event_participants", "H7eyFTCnjeGPvtMIfSrB");
+        const docRef = doc(db, "event_participants", "approved_ids");
         const docSnap = await getDoc(docRef);
-        const newId = itemData.id;
-
+        const newId = Number(updatedItemData.id); 
+  
         if (docSnap.exists()) {
-          const existingIds = docSnap.data().approved_ids?.ids || [];
+          const existingIds = docSnap.data()?.ids || []; 
           if (!existingIds.includes(newId)) {
-            await updateDoc(docRef, { "approved_ids.ids": arrayUnion(newId) });
-            setItems([...items, { id: newId }]);
+            await updateDoc(docRef, { ids: arrayUnion(newId) }); 
+            setItems([...items, { id: newId }]); 
           } else {
             alert("ID already exists.");
           }
@@ -102,8 +110,8 @@ const EventsClubsPage = () => {
           alert("Document not found.");
         }
       } else {
-        const newDocRef = await addDoc(collection(db, activeTab), itemData);
-        setItems([...items, { id: newDocRef.id, ...itemData }]);
+        const newDocRef = await addDoc(collection(db, activeTab), updatedItemData);
+        setItems([...items, { id: newDocRef.id, ...updatedItemData }]);
       }
       resetForm();
     } catch (err) {
@@ -111,6 +119,7 @@ const EventsClubsPage = () => {
       setError(`Error adding ${activeTab}`);
     }
   };
+
 
   const handleDeleteItem = async (id) => {
     try {
