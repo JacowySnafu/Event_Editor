@@ -1,613 +1,287 @@
-import React, { useEffect, useState } from 'react';
-import {
-  db,
-  collection,
-  getDocs,
-  addDoc,
-  deleteDoc,
-  doc,
-  updateDoc,
-} from './firebase';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { db, collection, getDocs, addDoc, deleteDoc, doc, updateDoc, arrayUnion, getDoc, setDoc } from './firebase';
+import { getStorage, ref, getDownloadURL } from "firebase/storage";
 import 'bootstrap/dist/css/bootstrap.min.css';
-import {
-  Container,
-  Row,
-  Col,
-  Card,
-  Button,
-  Spinner,
-  Modal,
-  Form,
-} from 'react-bootstrap';
+import { Container, Row, Col, Card, Button, Spinner, Form, Modal, Nav } from 'react-bootstrap';
 
-const tabs = [
-  { key: 'events', label: 'Events' },
-  { key: 'event_participants', label: 'Event Participants' },
-  { key: 'tutor', label: 'Tutors' },
-  { key: 'clubs', label: 'Clubs' },
-  { key: 'FineArts', label: 'Fine Arts' },
-  { key: 'athletics', label: 'Athletics' },
-];
-
-function App() {
+const EventsClubsPage = () => {
   const [activeTab, setActiveTab] = useState('events');
   const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [showModal, setShowModal] = useState(false);
-  const [editingItem, setEditingItem] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [itemData, setItemData] = useState({});
+  const [editingItem, setEditingItem] = useState(null);
+  const [showModal, setShowModal] = useState(false);
   const [bulkIds, setBulkIds] = useState('');
+  const [imageUrls, setImageUrls] = useState({});
+  // const [approvedIdsList, setApprovedIdsList] = useState([]); // New state
 
-  useEffect(() => {
-    const fetchItems = async () => {
-      setLoading(true);
-      try {
-        const colRef = collection(db, activeTab);
-        const snapshot = await getDocs(colRef);
-        const docs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        setItems(docs);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      }
-      setLoading(false);
-    };
-    fetchItems();
-  }, [activeTab]);
+  const storage = getStorage();
+  const imageUrlsRef = useRef({});
 
-  const handleShowModal = () => {
-    setEditingItem(null);
-    setItemData({});
-    setShowModal(true);
-  };
+  const getImageURL = useCallback(async (imagePath) => {
+    if (imageUrlsRef.current[imagePath]) return;
+    try {
+      const imageRef = ref(storage, imagePath);
+      const url = await getDownloadURL(imageRef);
+      imageUrlsRef.current[imagePath] = url;
+      setImageUrls(prev => ({ ...prev, [imagePath]: url }));
+    } catch (error) {
+      console.error("Error fetching image URL:", error);
+    }
+  }, [storage]);
 
-  const handleCloseModal = () => {
-    setShowModal(false);
-    setEditingItem(null);
-    setItemData({});
-    setBulkIds('');
-  };
+  const handleBulkIdsChange = (e) => setBulkIds(e.target.value);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setItemData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setItemData(prevData => ({ ...prevData, [name]: value }));
   };
 
-  const handleBulkIdsChange = (e) => {
-    setBulkIds(e.target.value);
-  };
-
-  const handleEditItem = (item) => {
-    setEditingItem(item);
-
-    // Normalize fields for tutor, since it uses some different names
-    if (activeTab === 'tutor') {
-      setItemData({
-        name: item.name || '',
-        description: item.desc || '',
-        image: item.img || '',
-        subject: item.subject || '',
-        tags: item.tags || '',
-        mail: item.email || item.mail || '',
-        instagram: item.instagram || '',
-        website: item.website || '',
-      });
-    } else if (activeTab === 'event_participants') {
-      // event_participants mostly have id only
-      setItemData({ id: item.id });
-    } else {
-      setItemData({
-        name: item.name || '',
-        description: item.description || '',
-        day: item.day || '',
-        month: item.month || '',
-        year: item.year || '',
-        type: item.type || '',
-        image: item.image || '',
-        website: item.website || '',
-        mail: item.mail || '',
-        instagram: item.instagram || '',
-      });
+  const handleBulkAdd = async (e) => {
+    e.preventDefault();
+    const ids = bulkIds.split(/[\n,]+/).map(id => id.trim()).filter(id => id);
+    if (!ids.length) return alert("Please enter at least one ID.");
+  
+    const docRef = doc(db, "event_participants", "approved_ids");
+    try {
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const existingIds = docSnap.data()?.ids || []; 
+        const newIds = ids.map(id => Number(id)).filter(id => !existingIds.includes(id)); 
+  
+        if (newIds.length) {
+          await updateDoc(docRef, { ids: arrayUnion(...newIds) }); 
+          setItems(prev => [...prev, ...newIds.map(id => ({ id }))]); 
+          setBulkIds('');
+          alert(`Successfully added ${newIds.length} new IDs.`);
+        } else {
+          alert("All IDs are already in the list.");
+        }
+      } else {
+        // Create the document if it doesn't exist
+        const newIds = ids.map(id => Number(id));
+        if (newIds.length) {
+          await setDoc(docRef, { ids: newIds });
+          setItems(prev => [...prev, ...newIds.map(id => ({ id }))]);
+          setBulkIds('');
+          alert(`Successfully created approved_ids and added ${newIds.length} new IDs.`);
+        } else {
+          alert("No IDs provided to create the list.");
+        }
+      }
+    } catch (error) {
+      console.error("Error adding IDs:", error);
+      alert("Error adding IDs.");
     }
+  };
+
+  const fetchItems = useCallback(async () => {
+    try {
+      setLoading(true);
+      const collectionRef = collection(db, activeTab);
+      const snapshot = await getDocs(collectionRef);
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setItems(data);
+      if (activeTab === 'tutor') {
+        console.log('Tutors:', data);
+      }
+      setLoading(false);
+      data.forEach(item => item.image && getImageURL(item.image));
+    } catch (err) {
+      setLoading(false);
+    }
+  }, [activeTab, getImageURL]);
+
+  useEffect(() => { fetchItems(); }, [fetchItems]);
+
+  const handleAddItem = async (e) => {
+    e.preventDefault();
+    try {
+      const updatedItemData = {
+        ...itemData,
+        type: (activeTab === "clubs" || activeTab === "FineArts" || activeTab === "tutor") ? "school" :
+          (activeTab === "events" || activeTab === "athletics") ? "volunteer" :
+            itemData.type || ""
+      };
+  
+      if (activeTab === "event_participants") {
+        const docRef = doc(db, "event_participants", "approved_ids");
+        const docSnap = await getDoc(docRef);
+        const newId = Number(updatedItemData.id); 
+  
+        if (docSnap.exists()) {
+          const existingIds = docSnap.data()?.ids || []; 
+          if (!existingIds.includes(newId)) {
+            await updateDoc(docRef, { ids: arrayUnion(newId) }); 
+            setItems([...items, { id: newId }]); 
+          } else {
+            alert("ID already exists.");
+          }
+        } else {
+          // Create the document if it doesn't exist
+          await setDoc(docRef, { ids: [newId] });
+          setItems([...items, { id: newId }]);
+          alert("Created approved_ids and added the new ID.");
+        }
+      } else {
+        const newDocRef = await addDoc(collection(db, activeTab), updatedItemData);
+        setItems([...items, { id: newDocRef.id, ...updatedItemData }]);
+      }
+      resetForm();
+    } catch (err) {
+      console.error(err);
+      setError(`Error adding ${activeTab}`);
+    }
+  };
+
+
+  const handleDeleteItem = async (id) => {
+    try {
+      await deleteDoc(doc(db, activeTab, id));
+      setItems(items.filter(item => item.id !== id));
+    } catch (err) {
+      setError(`Error deleting ${activeTab}`);
+    }
+  };
+
+  const handleOpenModal = (item = null) => {
+    setEditingItem(item);
+    setItemData(item || {
+      name: '', description: '', day: '', month: '', year: '',
+      type: '', image: '', website: '', mail: '', instagram: '', uid: '' // Add uid here
+    });
     setShowModal(true);
   };
 
-  const handleDeleteItem = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this item?')) return;
-    try {
-      await deleteDoc(doc(db, activeTab, id));
-      setItems((prev) => prev.filter((item) => item.id !== id));
-    } catch (error) {
-      console.error('Error deleting document:', error);
-    }
+  const resetForm = () => {
+    setEditingItem(null);
+    setItemData({
+      name: '', description: '', day: '', month: '', year: '',
+      type: '', image: '', website: '', mail: '', instagram: '', uid: '' // Add uid here
+    });
+    setShowModal(false);
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const formatDate = (day, month, year) => (day && month && year) ? `${month} ${day}, ${year}` : 'Date not available';
 
-    try {
-      if (activeTab === 'event_participants') {
-        // Bulk add logic for event_participants
-        const idsArray = bulkIds
-          .split('\n')
-          .map((id) => id.trim())
-          .filter((id) => id.length > 0);
-        for (const id of idsArray) {
-          await addDoc(collection(db, activeTab), { id });
-        }
-        setBulkIds('');
-      } else if (activeTab === 'tutor') {
-        const dataToSave = {
-          name: itemData.name || '',
-          desc: itemData.description || '',
-          img: itemData.image || '',
-          subject: itemData.subject || '',
-          tags: itemData.tags || '',
-          email: itemData.mail || '',
-          instagram: itemData.instagram || '',
-          website: itemData.website || '',
-        };
-        if (editingItem) {
-          await updateDoc(doc(db, activeTab, editingItem.id), dataToSave);
-          setItems((prev) =>
-            prev.map((item) =>
-              item.id === editingItem.id ? { ...item, ...dataToSave } : item
-            )
-          );
-        } else {
-          const docRef = await addDoc(collection(db, activeTab), dataToSave);
-          setItems((prev) => [...prev, { id: docRef.id, ...dataToSave }]);
-        }
-      } 
-      else if (activeTab === 'events') {
-        const dataToSave = {
-          name: itemData.name || '',
-          description: itemData.description || '',
-          day: itemData.day || '',
-          month: itemData.month || '',
-          year: itemData.year || '',
-          type: itemData.type || '',
-          image: itemData.image || '',
-          website: itemData.website || '',
-          mail: itemData.mail || '',
-          instagram: itemData.instagram || '',
-        };
-        if (editingItem) {
-          await updateDoc(doc(db, activeTab, editingItem.id), dataToSave);
-          setItems((prev) =>
-            prev.map((item) =>
-              item.id === editingItem.id ? { ...item, ...dataToSave } : item
-            )
-          );
-        } else {
-          const docRef = await addDoc(collection(db, activeTab), dataToSave);
-          setItems((prev) => [...prev, { id: docRef.id, ...dataToSave }]);
-        }
-      }
-      else {
-        // For clubs, fine_arts, athletics — assume same structure
-        const dataToSave = {
-          name: itemData.name || '',
-          description: itemData.description || '',
-          type: itemData.type || '',
-          image: itemData.image || '',
-          website: itemData.website || '',
-          mail: itemData.mail || '',
-          instagram: itemData.instagram || '',
-        };
-        if (editingItem) {
-          await updateDoc(doc(db, activeTab, editingItem.id), dataToSave);
-          setItems((prev) =>
-            prev.map((item) =>
-              item.id === editingItem.id ? { ...item, ...dataToSave } : item
-            )
-          );
-        } else {
-          const docRef = await addDoc(collection(db, activeTab), dataToSave);
-          setItems((prev) => [...prev, { id: docRef.id, ...dataToSave }]);
-        }
-      }
-      handleCloseModal();
-    } catch (error) {
-      console.error('Error adding/updating item:', error);
-    }
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    activeTab === "event_participants" && bulkIds ? handleBulkAdd(e) : handleAddItem(e);
   };
 
   return (
-    <Container className="mt-4">
-      <Row className="mb-3">
-        <Col>
-          {tabs.map(({ key, label }) => (
-            <Button
-              key={key}
-              variant={activeTab === key ? 'primary' : 'outline-primary'}
-              onClick={() => setActiveTab(key)}
-              className="me-2 mb-2"
-            >
-              {label}
-            </Button>
-          ))}
-        </Col>
-        <Col className="text-end">
-          <Button onClick={handleShowModal}>Add Item</Button>
-        </Col>
-      </Row>
+    <Container className="position-relative">
+      <h1 className="text-center my-4">Manage Events & Clubs</h1>
+
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <Nav variant="tabs" activeKey={activeTab} onSelect={setActiveTab}>
+          <Nav.Item><Nav.Link eventKey="events">Events</Nav.Link></Nav.Item>
+          <Nav.Item><Nav.Link eventKey="clubs">Clubs</Nav.Link></Nav.Item>
+          <Nav.Item><Nav.Link eventKey="FineArts">FineArts</Nav.Link></Nav.Item>
+          <Nav.Item><Nav.Link eventKey="athletics">Athletics</Nav.Link></Nav.Item>
+          <Nav.Item><Nav.Link eventKey="tutor">Tutors</Nav.Link></Nav.Item>
+          <Nav.Item><Nav.Link eventKey="event_participants">Id List</Nav.Link></Nav.Item>
+        </Nav>
+        <Button variant="success" onClick={() => handleOpenModal()}>Add Item</Button>
+        {/* <Button variant="info" onClick={fetchApprovedIds} className="ms-2">Show Approved IDs</Button> */} {/* New Button */}
+      </div>
 
       {loading ? (
-        <Spinner animation="border" />
+        <div className="d-flex justify-content-center align-items-center" style={{ height: "50vh" }}>
+          <Spinner animation="border" variant="primary" />
+        </div>
+      ) : error ? (
+        <div className="text-center text-danger">{error}</div>
       ) : (
         <Row>
-          {items.length === 0 && (
-            <Col>
-              <p>No items found.</p>
-            </Col>
-          )}
-          {items.map((item) => (
-            <Col md={4} key={item.id} className="mb-3">
-              <Card>
-                {(activeTab === 'tutor' || activeTab === 'clubs' || activeTab === 'FineArts' || activeTab === 'athletics' || activeTab === 'events') ? (
-                  <>
-                    {(item.img || item.image) && (
-                      <Card.Img
-                        variant="top"
-                        src={item.img || item.image}
-                        alt={item.name}
-                      />
-                    )}
-                    <Card.Body>
-                      <Card.Title>{item.name}</Card.Title>
-                      <Card.Text>{item.desc || item.description}</Card.Text>
-                      {(activeTab === 'tutor') && (
-                        <>
-                          <Card.Text>
-                            <strong>Subject:</strong> {item.subject}
-                          </Card.Text>
-                          <Card.Text>
-                            <strong>Tags:</strong> {item.tags}
-                          </Card.Text>
-                          <Card.Text>
-                            <strong>Email:</strong> {item.email}
-                          </Card.Text>
-                        </>
-                      )}
-                      {(activeTab === 'event') && (
-                        <>
-                          <Card.Text>
-                            Date: {item.month} {item.day}, {item.year}
-                          </Card.Text>
-                          <Card.Text>Type: {item.type}</Card.Text>
-                          <Card.Text>Email: {item.mail}</Card.Text>
-                        </>
-                      )}
-                      {(activeTab === 'FineArts' || activeTab === 'athletics' || activeTab === 'clubs') && (
-                        <>
-                          
-                          <Card.Text>Type: {item.type}</Card.Text>
-                          <Card.Text>Email: {item.mail}</Card.Text>
-                        </>
-                      )}
-                      <Card.Text>Instagram: {item.instagram}</Card.Text>
-                      <Card.Text>Website: {item.website}</Card.Text>
-                    </Card.Body>
-                  </>
-                ) : activeTab === 'event_participants' ? (
-                  <Card.Body>
-                    <Card.Title>{item.id || 'No ID'}</Card.Title>
-                  </Card.Body>
-                ) : null}
-                <Card.Footer className="d-flex justify-content-between">
-                  <Button
-                    size="sm"
-                    variant="outline-primary"
-                    onClick={() => handleEditItem(item)}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline-danger"
-                    onClick={() => handleDeleteItem(item.id)}
-                  >
-                    Delete
-                  </Button>
-                </Card.Footer>
+          {items.map(item => (
+            <Col key={item.id} md={4} className="mb-4">
+              <Card className="shadow-sm h-100">
+                {item.image && item.image !== 'Na' && imageUrls[item.image] && (
+                  <Card.Img variant="top" src={imageUrls[item.image]} alt={item.name} style={{ height: '200px', objectFit: 'cover' }} />
+                )}
+                <Card.Body className="d-flex flex-column">
+                  <Card.Title className="text-truncate" title={item.name}>{item.name || item.id}</Card.Title>
+                  {activeTab !== 'event_participants' && (
+                    <>
+                      <Card.Text className="text-truncate" title={item.description}>{item.description}</Card.Text>
+                      <Card.Text><strong>{formatDate(item.day, item.month, item.year)}</strong></Card.Text>
+                      <Card.Text>
+                        {item.website && <a href={item.website} target="_blank" rel="noopener noreferrer">Visit Website</a>}
+                        {item.mail && <div><strong>Contact:</strong> {item.mail}</div>}
+                      </Card.Text>
+                    </>
+                  )}
+                  <div className="mt-auto d-flex justify-content-between">
+                    <Button variant="warning" className="btn-sm" onClick={() => handleOpenModal(item)}>Edit</Button>
+                    <Button variant="danger" className="btn-sm" onClick={() => handleDeleteItem(item.id)}>Delete</Button>
+                  </div>
+                </Card.Body>
               </Card>
             </Col>
           ))}
         </Row>
       )}
 
-      <Modal show={showModal} onHide={handleCloseModal} size="lg">
+      <Modal show={showModal} onHide={resetForm}>
         <Modal.Header closeButton>
-          <Modal.Title>{editingItem ? 'Edit Item' : 'Add Item'}</Modal.Title>
+          <Modal.Title>{editingItem ? 'Edit Item' : 'Add New Item'}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Form onSubmit={handleSubmit}>
-            {activeTab === 'event_participants' ? (
+            {activeTab === "event_participants" ? (
               <Form.Group controlId="formBulkIds">
                 <Form.Label>Bulk IDs</Form.Label>
-                <Form.Control
-                  as="textarea"
-                  rows={3}
-                  value={bulkIds}
-                  onChange={handleBulkIdsChange}
-                  placeholder="Enter one ID per line"
-                />
+                <Form.Control as="textarea" rows={3} value={bulkIds} onChange={handleBulkIdsChange} />
               </Form.Group>
-            ) : activeTab === 'tutor' ? (
+            ) : (
               <>
                 <Form.Group controlId="formName">
                   <Form.Label>Name</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="name"
-                    value={itemData.name || ''}
-                    onChange={handleChange}
-                    required
-                  />
+                  <Form.Control type="text" name="name" value={itemData.name || ''} onChange={handleChange} />
                 </Form.Group>
-
                 <Form.Group controlId="formDescription">
                   <Form.Label>Description</Form.Label>
-                  <Form.Control
-                    as="textarea"
-                    rows={3}
-                    name="description"
-                    value={itemData.description || ''}
-                    onChange={handleChange}
-                  />
+                  <Form.Control as="textarea" rows={5} name="description" value={itemData.description || ''} onChange={handleChange} />
                 </Form.Group>
-
-                <Form.Group controlId="formImage">
-                  <Form.Label>Image URL</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="image"
-                    value={itemData.image || ''}
-                    onChange={handleChange}
-                  />
-                </Form.Group>
-
-                <Form.Group controlId="formSubject">
-                  <Form.Label>Subjects</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="subject"
-                    value={itemData.subject || ''}
-                    onChange={handleChange}
-                    placeholder="e.g., Math, Physics"
-                  />
-                </Form.Group>
-
-                <Form.Group controlId="formTags">
-                  <Form.Label>Tags (comma-separated)</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="tags"
-                    value={itemData.tags || ''}
-                    onChange={handleChange}
-                    placeholder="e.g., math, sat, physics"
-                  />
-                </Form.Group>
-
-                <Form.Group controlId="formMail">
-                  <Form.Label>Email</Form.Label>
-                  <Form.Control
-                    type="email"
-                    name="mail"
-                    value={itemData.mail || ''}
-                    onChange={handleChange}
-                  />
-                </Form.Group>
-
-                <Form.Group controlId="formInstagram">
-                  <Form.Label>Instagram</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="instagram"
-                    value={itemData.instagram || ''}
-                    onChange={handleChange}
-                  />
-                </Form.Group>
-
-                <Form.Group controlId="formWebsite">
-                  <Form.Label>Website</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="website"
-                    value={itemData.website || ''}
-                    onChange={handleChange}
-                  />
-                </Form.Group>
-              </>
-            ) : activeTab === 'events' ? (
-              <>
-                <Form.Group controlId="formName">
-                  <Form.Label>Name</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="name"
-                    value={itemData.name || ''}
-                    onChange={handleChange}
-                    required
-                  />
-                </Form.Group>
-
-                <Form.Group controlId="formDescription">
-                  <Form.Label>Description</Form.Label>
-                  <Form.Control
-                    as="textarea"
-                    rows={3}
-                    name="description"
-                    value={itemData.description || ''}
-                    onChange={handleChange}
-                  />
-                </Form.Group>
-
                 <Form.Group controlId="formDate">
                   <Form.Label>Date</Form.Label>
                   <Row>
-                    <Col>
-                      <Form.Control
-                        type="number"
-                        name="day"
-                        value={itemData.day || ''}
-                        onChange={handleChange}
-                        placeholder="Day"
-                      />
-                    </Col>
-                    <Col>
-                      <Form.Control
-                        type="text"
-                        name="month"
-                        value={itemData.month || ''}
-                        onChange={handleChange}
-                        placeholder="Month"
-                      />
-                    </Col>
-                    <Col>
-                      <Form.Control
-                        type="number"
-                        name="year"
-                        value={itemData.year || ''}
-                        onChange={handleChange}
-                        placeholder="Year"
-                      />
-                    </Col>
+                    <Col><Form.Control type="number" name="day" value={itemData.day || ''} onChange={handleChange} placeholder="Day" /></Col>
+                    <Col><Form.Control type="text" name="month" value={itemData.month || ''} onChange={handleChange} placeholder="Month" /></Col>
+                    <Col><Form.Control type="number" name="year" value={itemData.year || ''} onChange={handleChange} placeholder="Year" /></Col>
                   </Row>
                 </Form.Group>
-
                 <Form.Group controlId="formType">
                   <Form.Label>Type</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="type"
-                    value={itemData.type || ''}
-                    onChange={handleChange}
-                  />
+                  <Form.Control type="text" name="type" value={itemData.type || ''} onChange={handleChange} />
                 </Form.Group>
-
                 <Form.Group controlId="formImage">
                   <Form.Label>Image URL</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="image"
-                    value={itemData.image || ''}
-                    onChange={handleChange}
-                  />
+                  <Form.Control type="text" name="image" value={itemData.image || ''} onChange={handleChange} />
                 </Form.Group>
-
                 <Form.Group controlId="formWebsite">
                   <Form.Label>Website</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="website"
-                    value={itemData.website || ''}
-                    onChange={handleChange}
-                  />
+                  <Form.Control type="text" name="website" value={itemData.website || ''} onChange={handleChange} />
                 </Form.Group>
-
                 <Form.Group controlId="formMail">
                   <Form.Label>Email</Form.Label>
-                  <Form.Control
-                    type="email"
-                    name="mail"
-                    value={itemData.mail || ''}
-                    onChange={handleChange}
-                  />
+                  <Form.Control type="text" name="mail" value={itemData.mail || ''} onChange={handleChange} />
                 </Form.Group>
-
                 <Form.Group controlId="formInstagram">
                   <Form.Label>Instagram</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="instagram"
-                    value={itemData.instagram || ''}
-                    onChange={handleChange}
-                  />
+                  <Form.Control type="text" name="instagram" value={itemData.instagram || ''} onChange={handleChange} />
                 </Form.Group>
-              </>
-            )
-          : (
-              <>
-                <Form.Group controlId="formName">
-                  <Form.Label>Name</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="name"
-                    value={itemData.name || ''}
-                    onChange={handleChange}
-                    required
-                  />
-                </Form.Group>
-
-                <Form.Group controlId="formDescription">
-                  <Form.Label>Description</Form.Label>
-                  <Form.Control
-                    as="textarea"
-                    rows={3}
-                    name="description"
-                    value={itemData.description || ''}
-                    onChange={handleChange}
-                  />
-                </Form.Group>
-
-                
-
-                <Form.Group controlId="formType">
-                  <Form.Label>Type</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="type"
-                    value={itemData.type || ''}
-                    onChange={handleChange}
-                  />
-                </Form.Group>
-
-                <Form.Group controlId="formImage">
-                  <Form.Label>Image URL</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="image"
-                    value={itemData.image || ''}
-                    onChange={handleChange}
-                  />
-                </Form.Group>
-
-                <Form.Group controlId="formWebsite">
-                  <Form.Label>Website</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="website"
-                    value={itemData.website || ''}
-                    onChange={handleChange}
-                  />
-                </Form.Group>
-
-                <Form.Group controlId="formMail">
-                  <Form.Label>Email</Form.Label>
-                  <Form.Control
-                    type="email"
-                    name="mail"
-                    value={itemData.mail || ''}
-                    onChange={handleChange}
-                  />
-                </Form.Group>
-
-                <Form.Group controlId="formInstagram">
-                  <Form.Label>Instagram</Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="instagram"
-                    value={itemData.instagram || ''}
-                    onChange={handleChange}
-                  />
-                </Form.Group>
+                {activeTab === "tutor" && (
+                  <Form.Group controlId="formUid">
+                    <Form.Label>User ID (UID)</Form.Label>
+                    <Form.Control type="text" name="uid" value={itemData.uid || ''} onChange={handleChange} placeholder="Enter Firebase User ID" />
+                  </Form.Group>
+                )}
               </>
             )}
-            <Button variant="primary" type="submit" className="mt-3">
+            <Button variant="primary" type="submit">
               {editingItem ? 'Save Changes' : 'Add Item'}
             </Button>
           </Form>
@@ -615,6 +289,6 @@ function App() {
       </Modal>
     </Container>
   );
-}
+};
 
-export default App;
+export default EventsClubsPage;
