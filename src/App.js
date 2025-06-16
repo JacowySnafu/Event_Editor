@@ -14,8 +14,6 @@ const EventsClubsPage = () => {
   const [showModal, setShowModal] = useState(false);
   const [bulkIds, setBulkIds] = useState('');
   const [imageUrls, setImageUrls] = useState({});
-  // const [approvedIdsList, setApprovedIdsList] = useState([]); // New state
-
   const storage = getStorage();
   const imageUrlsRef = useRef({});
 
@@ -42,24 +40,23 @@ const EventsClubsPage = () => {
     e.preventDefault();
     const ids = bulkIds.split(/[\n,]+/).map(id => id.trim()).filter(id => id);
     if (!ids.length) return alert("Please enter at least one ID.");
-  
+
     const docRef = doc(db, "event_participants", "approved_ids");
     try {
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
-        const existingIds = docSnap.data()?.ids || []; 
-        const newIds = ids.map(id => Number(id)).filter(id => !existingIds.includes(id)); 
-  
+        const existingIds = docSnap.data()?.ids || [];
+        const newIds = ids.map(id => Number(id)).filter(id => !existingIds.includes(id));
+
         if (newIds.length) {
-          await updateDoc(docRef, { ids: arrayUnion(...newIds) }); 
-          setItems(prev => [...prev, ...newIds.map(id => ({ id }))]); 
+          await updateDoc(docRef, { ids: arrayUnion(...newIds) });
+          setItems(prev => [...prev, ...newIds.map(id => ({ id }))]);
           setBulkIds('');
           alert(`Successfully added ${newIds.length} new IDs.`);
         } else {
           alert("All IDs are already in the list.");
         }
       } else {
-        // Create the document if it doesn't exist
         const newIds = ids.map(id => Number(id));
         if (newIds.length) {
           await setDoc(docRef, { ids: newIds });
@@ -83,12 +80,11 @@ const EventsClubsPage = () => {
       const snapshot = await getDocs(collectionRef);
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setItems(data);
-      if (activeTab === 'tutor') {
-        console.log('Tutors:', data);
-      }
+      console.log(`${activeTab} data fetched:`, data);
       setLoading(false);
       data.forEach(item => item.image && getImageURL(item.image));
     } catch (err) {
+      console.error(err);
       setLoading(false);
     }
   }, [activeTab, getImageURL]);
@@ -101,25 +97,30 @@ const EventsClubsPage = () => {
       const updatedItemData = {
         ...itemData,
         type: (activeTab === "clubs" || activeTab === "FineArts" || activeTab === "tutor") ? "school" :
-          (activeTab === "events" || activeTab === "athletics") ? "volunteer" :
-            itemData.type || ""
+              (activeTab === "events" || activeTab === "athletics") ? "volunteer" :
+              itemData.type || ""
       };
-  
-      if (activeTab === "event_participants") {
+
+      if (editingItem) {
+        const itemRef = doc(db, activeTab, editingItem.id);
+        await updateDoc(itemRef, updatedItemData);
+        setItems(prev =>
+          prev.map(item => item.id === editingItem.id ? { ...item, ...updatedItemData } : item)
+        );
+      } else if (activeTab === "event_participants") {
         const docRef = doc(db, "event_participants", "approved_ids");
         const docSnap = await getDoc(docRef);
-        const newId = Number(updatedItemData.id); 
-  
+        const newId = Number(updatedItemData.id);
+
         if (docSnap.exists()) {
-          const existingIds = docSnap.data()?.ids || []; 
+          const existingIds = docSnap.data()?.ids || [];
           if (!existingIds.includes(newId)) {
-            await updateDoc(docRef, { ids: arrayUnion(newId) }); 
-            setItems([...items, { id: newId }]); 
+            await updateDoc(docRef, { ids: arrayUnion(newId) });
+            setItems([...items, { id: newId }]);
           } else {
             alert("ID already exists.");
           }
         } else {
-          // Create the document if it doesn't exist
           await setDoc(docRef, { ids: [newId] });
           setItems([...items, { id: newId }]);
           alert("Created approved_ids and added the new ID.");
@@ -128,6 +129,7 @@ const EventsClubsPage = () => {
         const newDocRef = await addDoc(collection(db, activeTab), updatedItemData);
         setItems([...items, { id: newDocRef.id, ...updatedItemData }]);
       }
+
       resetForm();
     } catch (err) {
       console.error(err);
@@ -135,13 +137,14 @@ const EventsClubsPage = () => {
     }
   };
 
-
   const handleDeleteItem = async (id) => {
     try {
       await deleteDoc(doc(db, activeTab, id));
       setItems(items.filter(item => item.id !== id));
+      console.log(`Deleted ${activeTab} item with ID:`, id);
     } catch (err) {
       setError(`Error deleting ${activeTab}`);
+      console.error(err);
     }
   };
 
@@ -149,7 +152,7 @@ const EventsClubsPage = () => {
     setEditingItem(item);
     setItemData(item || {
       name: '', description: '', day: '', month: '', year: '',
-      type: '', image: '', website: '', mail: '', instagram: '', uid: '' // Add uid here
+      type: '', image: '', website: '', mail: '', instagram: '', uid: '', subject: ''
     });
     setShowModal(true);
   };
@@ -158,12 +161,12 @@ const EventsClubsPage = () => {
     setEditingItem(null);
     setItemData({
       name: '', description: '', day: '', month: '', year: '',
-      type: '', image: '', website: '', mail: '', instagram: '', uid: '' // Add uid here
+      type: '', image: '', website: '', mail: '', instagram: '', uid: '', subject: ''
     });
     setShowModal(false);
   };
 
-  const formatDate = (day, month, year) => (day && month && year) ? `${month} ${day}, ${year}` : 'Date not available';
+  const formatDate = (day, month, year) => (day && month && year) ? `${month} ${day}, ${year}` : '';
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -184,7 +187,6 @@ const EventsClubsPage = () => {
           <Nav.Item><Nav.Link eventKey="event_participants">Id List</Nav.Link></Nav.Item>
         </Nav>
         <Button variant="success" onClick={() => handleOpenModal()}>Add Item</Button>
-        {/* <Button variant="info" onClick={fetchApprovedIds} className="ms-2">Show Approved IDs</Button> */} {/* New Button */}
       </div>
 
       {loading ? (
@@ -198,19 +200,24 @@ const EventsClubsPage = () => {
           {items.map(item => (
             <Col key={item.id} md={4} className="mb-4">
               <Card className="shadow-sm h-100">
-                {item.image && item.image !== 'Na' && imageUrls[item.image] && (
+                {item.image && imageUrls[item.image] && (
                   <Card.Img variant="top" src={imageUrls[item.image]} alt={item.name} style={{ height: '200px', objectFit: 'cover' }} />
                 )}
                 <Card.Body className="d-flex flex-column">
-                  <Card.Title className="text-truncate" title={item.name}>{item.name || item.id}</Card.Title>
+                  <Card.Title>{item.name || item.id}</Card.Title>
                   {activeTab !== 'event_participants' && (
                     <>
-                      <Card.Text className="text-truncate" title={item.description}>{item.description}</Card.Text>
-                      <Card.Text><strong>{formatDate(item.day, item.month, item.year)}</strong></Card.Text>
-                      <Card.Text>
-                        {item.website && <a href={item.website} target="_blank" rel="noopener noreferrer">Visit Website</a>}
-                        {item.mail && <div><strong>Contact:</strong> {item.mail}</div>}
-                      </Card.Text>
+                      <Card.Text>{item.description}</Card.Text>
+                      {activeTab !== 'tutor' && (
+                        <>
+                          <Card.Text><strong>{formatDate(item.day, item.month, item.year)}</strong></Card.Text>
+                          <Card.Text>
+                            {item.website && <a href={item.website} target="_blank" rel="noopener noreferrer">Visit Website</a>}
+                          </Card.Text>
+                        </>
+                      )}
+                      {item.mail && <Card.Text><strong>Contact:</strong> {item.mail}</Card.Text>}
+                      {activeTab === 'tutor' && item.subject && <Card.Text><strong>Subject:</strong> {item.subject}</Card.Text>}
                     </>
                   )}
                   <div className="mt-auto d-flex justify-content-between">
@@ -243,27 +250,33 @@ const EventsClubsPage = () => {
                 </Form.Group>
                 <Form.Group controlId="formDescription">
                   <Form.Label>Description</Form.Label>
-                  <Form.Control as="textarea" rows={5} name="description" value={itemData.description || ''} onChange={handleChange} />
+                  <Form.Control as="textarea" rows={3} name="description" value={itemData.description || ''} onChange={handleChange} />
                 </Form.Group>
-                <Form.Group controlId="formDate">
-                  <Form.Label>Date</Form.Label>
-                  <Row>
-                    <Col><Form.Control type="number" name="day" value={itemData.day || ''} onChange={handleChange} placeholder="Day" /></Col>
-                    <Col><Form.Control type="text" name="month" value={itemData.month || ''} onChange={handleChange} placeholder="Month" /></Col>
-                    <Col><Form.Control type="number" name="year" value={itemData.year || ''} onChange={handleChange} placeholder="Year" /></Col>
-                  </Row>
-                </Form.Group>
-                <Form.Group controlId="formType">
-                  <Form.Label>Type</Form.Label>
-                  <Form.Control type="text" name="type" value={itemData.type || ''} onChange={handleChange} />
-                </Form.Group>
+                {activeTab !== 'tutor' && (
+                  <>
+                    <Form.Group controlId="formDate">
+                      <Form.Label>Date</Form.Label>
+                      <Row>
+                        <Col><Form.Control type="number" name="day" value={itemData.day || ''} onChange={handleChange} placeholder="Day" /></Col>
+                        <Col><Form.Control type="text" name="month" value={itemData.month || ''} onChange={handleChange} placeholder="Month" /></Col>
+                        <Col><Form.Control type="number" name="year" value={itemData.year || ''} onChange={handleChange} placeholder="Year" /></Col>
+                      </Row>
+                    </Form.Group>
+                    <Form.Group controlId="formWebsite">
+                      <Form.Label>Website</Form.Label>
+                      <Form.Control type="text" name="website" value={itemData.website || ''} onChange={handleChange} />
+                    </Form.Group>
+                  </>
+                )}
+                {activeTab === 'tutor' && (
+                  <Form.Group controlId="formSubject">
+                    <Form.Label>Subject</Form.Label>
+                    <Form.Control type="text" name="subject" value={itemData.subject || ''} onChange={handleChange} />
+                  </Form.Group>
+                )}
                 <Form.Group controlId="formImage">
                   <Form.Label>Image URL</Form.Label>
                   <Form.Control type="text" name="image" value={itemData.image || ''} onChange={handleChange} />
-                </Form.Group>
-                <Form.Group controlId="formWebsite">
-                  <Form.Label>Website</Form.Label>
-                  <Form.Control type="text" name="website" value={itemData.website || ''} onChange={handleChange} />
                 </Form.Group>
                 <Form.Group controlId="formMail">
                   <Form.Label>Email</Form.Label>
@@ -276,12 +289,12 @@ const EventsClubsPage = () => {
                 {activeTab === "tutor" && (
                   <Form.Group controlId="formUid">
                     <Form.Label>User ID (UID)</Form.Label>
-                    <Form.Control type="text" name="uid" value={itemData.uid || ''} onChange={handleChange} placeholder="Enter Firebase User ID" />
+                    <Form.Control type="text" name="uid" value={itemData.uid || ''} onChange={handleChange} />
                   </Form.Group>
                 )}
               </>
             )}
-            <Button variant="primary" type="submit">
+            <Button variant="primary" type="submit" className="mt-3 w-100">
               {editingItem ? 'Save Changes' : 'Add Item'}
             </Button>
           </Form>
