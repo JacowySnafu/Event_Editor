@@ -1,8 +1,12 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { db, collection, getDocs, addDoc, deleteDoc, doc, updateDoc, arrayUnion, getDoc, setDoc } from './firebase';
+import {
+  db, collection, getDocs, addDoc, deleteDoc, doc, updateDoc, arrayUnion, getDoc, setDoc
+} from './firebase';
 import { getStorage, ref, getDownloadURL } from "firebase/storage";
 import 'bootstrap/dist/css/bootstrap.min.css';
-import { Container, Row, Col, Card, Button, Spinner, Form, Modal, Nav } from 'react-bootstrap';
+import {
+  Container, Row, Col, Card, Button, Spinner, Form, Modal, Nav
+} from 'react-bootstrap';
 
 const EventsClubsPage = () => {
   const [activeTab, setActiveTab] = useState('events');
@@ -78,12 +82,14 @@ const EventsClubsPage = () => {
       setLoading(false);
       data.forEach(item => item.image && getImageURL(item.image));
     } catch (err) {
-      console.error(err);
+      console.error("Error fetching items:", err);
       setLoading(false);
     }
   }, [activeTab, getImageURL]);
 
-  useEffect(() => { fetchItems(); }, [fetchItems]);
+  useEffect(() => {
+    fetchItems();
+  }, [fetchItems]);
 
   const handleAddItem = async (e) => {
     e.preventDefault();
@@ -143,11 +149,14 @@ const EventsClubsPage = () => {
 
   const handleDeleteItem = async (id) => {
     try {
+      console.log("Attempting to delete:", { id, activeTab });
       await deleteDoc(doc(db, activeTab, id));
+      console.log("Successfully deleted:", id);
       setItems(items.filter(item => item.id !== id));
+      fetchItems(); // Refresh in case data was stale
     } catch (err) {
+      console.error("Error deleting item:", { id, activeTab, error: err });
       setError(`Error deleting ${activeTab}`);
-      console.error(err);
     }
   };
 
@@ -254,14 +263,12 @@ const EventsClubsPage = () => {
                   <Form.Label>Description</Form.Label>
                   <Form.Control as="textarea" rows={3} name="description" value={itemData.description || ''} onChange={handleChange} />
                 </Form.Group>
-
                 {activeTab === "events" && (
                   <Form.Group controlId="formType">
                     <Form.Label>Type</Form.Label>
                     <Form.Control type="text" name="type" value={itemData.type || ''} onChange={handleChange} placeholder="e.g., volunteer, school" />
                   </Form.Group>
                 )}
-
                 {activeTab !== 'tutor' && (
                   <>
                     <Form.Group controlId="formDate">
