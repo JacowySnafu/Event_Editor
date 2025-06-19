@@ -107,18 +107,6 @@ const EventsClubsPage = () => {
     }
 
     try {
-<<<<<<< Updated upstream
-      if (editingItem) {
-        const itemRef = doc(db, activeTab, editingItem.id);
-        const docSnap = await getDoc(itemRef);
-        if (!docSnap.exists()) {
-          alert("This item no longer exists. Please refresh and try again.");
-          return;
-        }
-        await updateDoc(itemRef, updatedItemData);
-        setItems(prev => prev.map(item => item.id === editingItem.id ? { ...item, ...updatedItemData } : item));
-      } else if (activeTab === "event_participants") {
-=======
       let updatedItemData = {
         ...itemData,
         type: (activeTab === "clubs" || activeTab === "FineArts" || activeTab === "tutor") ? "school" :
@@ -136,7 +124,6 @@ const EventsClubsPage = () => {
       }
 
       if (activeTab === "event_participants") {
->>>>>>> Stashed changes
         const docRef = doc(db, "event_participants", "approved_ids");
         const docSnap = await getDoc(docRef);
         const newId = Number(updatedItemData.id);
@@ -182,12 +169,6 @@ const EventsClubsPage = () => {
 
   const handleOpenModal = (item = null) => {
     setEditingItem(item);
-<<<<<<< Updated upstream
-    setItemData(item || {
-      name: '', description: '', day: '', month: '', year: '',
-      type: '', image: '', website: '', mail: '', instagram: '', uid: '', subject: ''
-    });
-=======
     if (activeTab === "tutor" && item) {
       setItemData({
         ...item,
@@ -199,7 +180,6 @@ const EventsClubsPage = () => {
         type: '', image: '', website: '', mail: '', instagram: '', uid: ''
       });
     }
->>>>>>> Stashed changes
     setShowModal(true);
   };
 
