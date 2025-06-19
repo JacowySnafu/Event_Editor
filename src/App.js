@@ -77,7 +77,12 @@ const EventsClubsPage = () => {
       setLoading(true);
       const collectionRef = collection(db, activeTab);
       const snapshot = await getDocs(collectionRef);
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const data = snapshot.docs.map(doc => {
+        const docData = doc.data();
+        // Remove any 'id' field from the document data to avoid overwriting
+        const { id, ...rest } = docData;
+        return { id: doc.id, ...rest };
+      });
       setItems(data);
       setLoading(false);
       data.forEach(item => item.image && getImageURL(item.image));
@@ -94,35 +99,23 @@ const EventsClubsPage = () => {
   const handleAddItem = async (e) => {
     e.preventDefault();
 
-    const updatedItemData = {
+    let updatedItemData = {
       ...itemData,
-      type: activeTab === "events" ? itemData.type || "" : undefined
+      type: (activeTab === "clubs" || activeTab === "FineArts" || activeTab === "tutor") ? "school" :
+        (activeTab === "events" || activeTab === "athletics") ? "volunteer" :
+          itemData.type || ""
     };
 
+    // If adding or editing a tutor, use imgPath instead of image
     if (activeTab === "tutor") {
-      if (!updatedItemData.name || !updatedItemData.mail || !updatedItemData.uid) {
-        alert("Name, Email, and UID are required for tutors.");
-        return;
-      }
+      updatedItemData = {
+        ...updatedItemData,
+        imgPath: updatedItemData.image,
+      };
+      delete updatedItemData.image;
     }
 
     try {
-      let updatedItemData = {
-        ...itemData,
-        type: (activeTab === "clubs" || activeTab === "FineArts" || activeTab === "tutor") ? "school" :
-          (activeTab === "events" || activeTab === "athletics") ? "volunteer" :
-            itemData.type || ""
-      };
-
-      // If adding a tutor, use imgPath instead of image
-      if (activeTab === "tutor") {
-        updatedItemData = {
-          ...updatedItemData,
-          imgPath: updatedItemData.image,
-        };
-        delete updatedItemData.image;
-      }
-
       if (activeTab === "event_participants") {
         const docRef = doc(db, "event_participants", "approved_ids");
         const docSnap = await getDoc(docRef);
@@ -141,8 +134,17 @@ const EventsClubsPage = () => {
           setItems([...items, { id: newId }]);
           alert("Created approved_ids and added the new ID.");
         }
+      } else if (editingItem) {
+        // EDIT MODE: update the existing document
+        const docRef = doc(db, activeTab, editingItem.id);
+        await updateDoc(docRef, updatedItemData);
+        setItems(items.map(item =>
+          item.id === editingItem.id ? { ...item, ...updatedItemData } : item
+        ));
       } else {
+        // ADD MODE: create a new document
         const newDocRef = await addDoc(collection(db, activeTab), updatedItemData);
+        console.log("Added tutor with Firestore ID:", newDocRef.id);
         setItems([...items, { id: newDocRef.id, ...updatedItemData }]);
       }
 
@@ -155,15 +157,22 @@ const EventsClubsPage = () => {
   };
 
   const handleDeleteItem = async (id) => {
+    const docRef = doc(db, activeTab, id);
+    const docSnap = await getDoc(docRef);
+    if (!docSnap.exists()) {
+      console.warn(`Document with id "${id}" does NOT exist in collection "${activeTab}"`);
+      alert(`Document not found in Firestore!`);
+      return;
+    } else {
+      console.log(`Document with id "${id}" exists in collection "${activeTab}"`);
+    }
     try {
-      console.log("Attempting to delete:", { id, activeTab });
-      await deleteDoc(doc(db, activeTab, id));
-      console.log("Successfully deleted:", id);
+      console.log("Attempting to delete tutor with ID:", id);
+      await deleteDoc(docRef);
       setItems(items.filter(item => item.id !== id));
-      fetchItems(); // Refresh in case data was stale
     } catch (err) {
-      console.error("Error deleting item:", { id, activeTab, error: err });
-      setError(`Error deleting ${activeTab}`);
+      console.error("Error deleting item:", err);
+      alert("Error deleting item.");
     }
   };
 
