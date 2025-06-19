@@ -107,6 +107,7 @@ const EventsClubsPage = () => {
     }
 
     try {
+<<<<<<< Updated upstream
       if (editingItem) {
         const itemRef = doc(db, activeTab, editingItem.id);
         const docSnap = await getDoc(itemRef);
@@ -117,6 +118,25 @@ const EventsClubsPage = () => {
         await updateDoc(itemRef, updatedItemData);
         setItems(prev => prev.map(item => item.id === editingItem.id ? { ...item, ...updatedItemData } : item));
       } else if (activeTab === "event_participants") {
+=======
+      let updatedItemData = {
+        ...itemData,
+        type: (activeTab === "clubs" || activeTab === "FineArts" || activeTab === "tutor") ? "school" :
+          (activeTab === "events" || activeTab === "athletics") ? "volunteer" :
+            itemData.type || ""
+      };
+
+      // If adding a tutor, use imgPath instead of image
+      if (activeTab === "tutor") {
+        updatedItemData = {
+          ...updatedItemData,
+          imgPath: updatedItemData.image,
+        };
+        delete updatedItemData.image;
+      }
+
+      if (activeTab === "event_participants") {
+>>>>>>> Stashed changes
         const docRef = doc(db, "event_participants", "approved_ids");
         const docSnap = await getDoc(docRef);
         const newId = Number(updatedItemData.id);
@@ -162,10 +182,24 @@ const EventsClubsPage = () => {
 
   const handleOpenModal = (item = null) => {
     setEditingItem(item);
+<<<<<<< Updated upstream
     setItemData(item || {
       name: '', description: '', day: '', month: '', year: '',
       type: '', image: '', website: '', mail: '', instagram: '', uid: '', subject: ''
     });
+=======
+    if (activeTab === "tutor" && item) {
+      setItemData({
+        ...item,
+        image: item.imgPath || '', // Map imgPath to image for the form
+      });
+    } else {
+      setItemData(item || {
+        name: '', description: '', day: '', month: '', year: '',
+        type: '', image: '', website: '', mail: '', instagram: '', uid: ''
+      });
+    }
+>>>>>>> Stashed changes
     setShowModal(true);
   };
 
